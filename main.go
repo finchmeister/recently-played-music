@@ -1,20 +1,23 @@
 package main
 
 import (
+	"cloud.google.com/go/datastore"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/appengine"
+	"google.golang.org/appengine/urlfetch"
 	"html/template"
 	"io/ioutil"
 	"net/http"
-	"os"
+	"strings"
 	"time"
-
-	"google.golang.org/appengine"
 )
 
 var (
-	indexTemplate = template.Must(template.ParseFiles("index.html"))
-	tracks        = RecentlyPlayedResult{}
+	indexTemplate  = template.Must(template.ParseFiles("index.html"))
+	tracks         = RecentlyPlayedResult{}
+	refreshedToken = RefreshedToken{}
 )
 
 type RecentlyPlayedResult struct {
@@ -62,14 +65,20 @@ type Image struct {
 	Width  int    `json:"width"`
 }
 
+type Settings struct {
+	ClientId     string
+	ClientSecret string
+	RefreshToken string
+}
+
 func main() {
-	jsonFile, err := os.Open("new_sample.json")
-	if err != nil {
-		fmt.Println(err)
-	}
-	defer jsonFile.Close()
-	byteValue, _ := ioutil.ReadAll(jsonFile)
-	json.Unmarshal(byteValue, &tracks)
+	//jsonFile, err := os.Open("new_sample.json")
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
+	//defer jsonFile.Close()
+	//byteValue, _ := ioutil.ReadAll(jsonFile)
+	//json.Unmarshal(byteValue, &tracks)
 
 	http.HandleFunc("/", indexHandler)
 	appengine.Main()
@@ -78,8 +87,80 @@ func main() {
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.Redirect(w, r, "/", http.StatusFound)
-		fmt.Println("bb")
 		return
 	}
+
+	ctx := appengine.NewContext(r)
+	client, _ := datastore.NewClient(ctx, "recently-played-music")
+	settingsKey := datastore.NameKey("settings", "spotify_secrets", nil)
+	settings := new(Settings)
+	client.Get(ctx, settingsKey, settings)
+
+	if refreshedToken.AccessToken == "" {
+		//fmt.Println(fmt.Sprintf("%s - No Access token - requesting new token", time.Now()))
+		requestNewAccessToken(w, r, settings)
+	}
+
+	if refreshedToken.Expires.Before(time.Now()) {
+		//fmt.Println(fmt.Sprintf("%s - Token expired - requesting new token", time.Now()))
+		requestNewAccessToken(w, r, settings)
+	}
+
+	//fmt.Println(refreshedToken.AccessToken)
+	getRecentlyPlayed(refreshedToken.AccessToken, w, r)
+
 	indexTemplate.Execute(w, tracks)
+}
+
+func getRecentlyPlayed(accessToken string, w http.ResponseWriter, r *http.Request) {
+
+	ctx := appengine.NewContext(r)
+	client := urlfetch.Client(ctx)
+
+	req, err := http.NewRequest("GET", "https://api.spotify.com/v1/me/player/recently-played?limit=50", nil)
+	if err != nil {
+		// handle err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("error")
+
+	}
+	defer resp.Body.Close()
+
+	byteValue, _ := ioutil.ReadAll(resp.Body)
+	json.Unmarshal(byteValue, &tracks)
+}
+
+func requestNewAccessToken(w http.ResponseWriter, r *http.Request, settings *Settings) {
+
+	ctx := appengine.NewContext(r)
+	client := urlfetch.Client(ctx)
+
+	body := strings.NewReader(`grant_type=refresh_token&refresh_token=` + settings.RefreshToken)
+	req, err := http.NewRequest("POST", "https://accounts.spotify.com/api/token", body)
+	if err != nil {
+		// handle err
+	}
+
+	sEnc := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.ClientId, settings.ClientSecret)))
+
+	req.Header.Set("Authorization", "Basic "+sEnc)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// handle err
+	}
+	defer resp.Body.Close()
+	byteValue, _ := ioutil.ReadAll(resp.Body)
+	json.Unmarshal(byteValue, &refreshedToken)
+	refreshedToken.Expires = time.Now().Add(time.Second * 3600)
+}
+
+type RefreshedToken struct {
+	AccessToken string `json:"access_token"`
+	Expires     time.Time
 }
