@@ -14,33 +14,17 @@ import (
 
 var (
 	indexTemplate = template.Must(template.ParseFiles("index.html"))
+	tracks        = RecentlyPlayedResult{}
 )
-
-type templateParams struct {
-	Name string
-}
-
-type RecentlyPlayedItem struct {
-	// Track is the track information
-	Track SimpleTrack `json:"track"`
-
-	// PlayedAt is the time that this song was played
-	PlayedAt time.Time `json:"played_at"`
-
-	// PlaybackContext is the current playback context
-	PlaybackContext PlaybackContext `json:"context"`
-}
 
 type RecentlyPlayedResult struct {
 	Items []RecentlyPlayedItem `json:"items"`
 }
 
-// PlaybackContext is the playback context
-type PlaybackContext struct {
-	ExternalURLs map[string]string `json:"external_urls"`
-	Endpoint     string            `json:"href"`
-	Type         string            `json:"type"`
-	URI          string            `json:"uri"`
+type RecentlyPlayedItem struct {
+	Track           SimpleTrack     `json:"track"`
+	PlayedAt        time.Time       `json:"played_at"`
+	PlaybackContext PlaybackContext `json:"context"`
 }
 
 type SimpleTrack struct {
@@ -53,16 +37,23 @@ type SimpleTrack struct {
 	URI        string         `json:"uri"`
 }
 
-type SimpleArtist struct {
-	Name     string `json:"name"`
-	ID       string `json:"id"`
-	URI      string `json:"uri"`
-	Endpoint string `json:"href"`
+type PlaybackContext struct {
+	ExternalURLs map[string]string `json:"external_urls"`
+	Endpoint     string            `json:"href"`
+	Type         string            `json:"type"`
+	URI          string            `json:"uri"`
 }
 
 type SimpleAlbum struct {
 	Name   string  `json:"name"`
 	Images []Image `json:"images"`
+}
+
+type SimpleArtist struct {
+	Name     string `json:"name"`
+	ID       string `json:"id"`
+	URI      string `json:"uri"`
+	Endpoint string `json:"href"`
 }
 
 type Image struct {
@@ -71,13 +62,14 @@ type Image struct {
 	Width  int    `json:"width"`
 }
 
-type songDetails struct {
-	Name   string
-	Artist string
-	Img    string
-}
-
 func main() {
+	jsonFile, err := os.Open("new_sample.json")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer jsonFile.Close()
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+	json.Unmarshal(byteValue, &tracks)
 
 	http.HandleFunc("/", indexHandler)
 	appengine.Main()
@@ -89,25 +81,5 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("bb")
 		return
 	}
-
-	//tracks := RecentlyPlayedResult{}
-
-	jsonFile, err := os.Open("new_sample.json")
-	// if we os.Open returns an error then handle it
-	if err != nil {
-		fmt.Println(err)
-	}
-	defer jsonFile.Close()
-
-	byteValue, _ := ioutil.ReadAll(jsonFile)
-
-	var tracks RecentlyPlayedResult
-
-	// we unmarshal our byteArray which contains our
-	// jsonFile's content into 'users' which we defined above
-	json.Unmarshal(byteValue, &tracks)
-
-	//tracks.Items[0].Track.Album.Images
-
 	indexTemplate.Execute(w, tracks)
 }
