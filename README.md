@@ -18,3 +18,9 @@ gcloud app deploy
 View:
 
 <https://recently-played-music.appspot.com>
+
+Switch project:
+
+```
+gcloud config set project recently-played-music
+```
