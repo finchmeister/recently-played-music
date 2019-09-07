@@ -5,9 +5,15 @@ Deployed to Google App Engine on the free tier.
 
 ## Commands
 
-Run local app engine server:
+Install
 ```
-dev_appserver.py app.yaml
+export GO112MODULE=on 
+go get
+```
+
+Run locally at <http://localhost:8080>:
+```
+go run
 ```
 
 Deploy:
