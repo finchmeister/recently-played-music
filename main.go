@@ -5,11 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/appengine"
-	"google.golang.org/appengine/urlfetch"
 	"html/template"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -79,9 +79,16 @@ func main() {
 	//defer jsonFile.Close()
 	//byteValue, _ := ioutil.ReadAll(jsonFile)
 	//json.Unmarshal(byteValue, &tracks)
-
 	http.HandleFunc("/", indexHandler)
-	appengine.Main()
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+		log.Printf("Defaulting to port %s", port)
+	}
+
+	log.Printf("Listening on port %s", port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -90,19 +97,25 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := appengine.NewContext(r)
+	ctx := r.Context()
+	log.Println("about to fetch from datastore")
 	client, _ := datastore.NewClient(ctx, "recently-played-music")
 	settingsKey := datastore.NameKey("settings", "spotify_secrets", nil)
 	settings := new(Settings)
-	client.Get(ctx, settingsKey, settings)
+	err := client.Get(ctx, settingsKey, settings)
+	if err != nil {
+		log.Println("error fetching from datastore client")
+
+	}
+	log.Println("got from datastore")
 
 	if refreshedToken.AccessToken == "" {
-		//fmt.Println(fmt.Sprintf("%s - No Access token - requesting new token", time.Now()))
+		log.Println("No Access token - requesting new token")
 		requestNewAccessToken(w, r, settings)
 	}
 
 	if refreshedToken.Expires.Before(time.Now()) {
-		//fmt.Println(fmt.Sprintf("%s - Token expired - requesting new token", time.Now()))
+		log.Println("Token expired - requesting new token")
 		requestNewAccessToken(w, r, settings)
 	}
 
@@ -114,8 +127,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 
 func getRecentlyPlayed(accessToken string, w http.ResponseWriter, r *http.Request) {
 
-	ctx := appengine.NewContext(r)
-	client := urlfetch.Client(ctx)
+	client := http.Client{}
 
 	req, err := http.NewRequest("GET", "https://api.spotify.com/v1/me/player/recently-played?limit=50", nil)
 	if err != nil {
@@ -136,8 +148,7 @@ func getRecentlyPlayed(accessToken string, w http.ResponseWriter, r *http.Reques
 
 func requestNewAccessToken(w http.ResponseWriter, r *http.Request, settings *Settings) {
 
-	ctx := appengine.NewContext(r)
-	client := urlfetch.Client(ctx)
+	client := http.Client{}
 
 	body := strings.NewReader(`grant_type=refresh_token&refresh_token=` + settings.RefreshToken)
 	req, err := http.NewRequest("POST", "https://accounts.spotify.com/api/token", body)
